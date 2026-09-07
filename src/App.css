@@ -130,8 +130,39 @@ button {
   letter-spacing: 1.6px;
 }
 
+.dog-name-input {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 5px auto 0;
+  color: #9b6b50;
+  cursor: text;
+}
+
+.dog-name-input input {
+  width: 132px;
+  padding: 1px 3px 2px;
+  color: #624537;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed rgba(132,85,59,.35);
+  outline: 0;
+  font: 800 14px "Nunito", sans-serif;
+  text-align: center;
+}
+
+.dog-name-input input:focus {
+  color: #a14f2f;
+  border-bottom-color: #c8663d;
+}
+
+.dog-name-input span {
+  font-size: 10px;
+}
+
 .counter-card h1 {
-  margin: 7px 0 -5px;
+  margin: 4px 0 -5px;
   color: #3d2a23;
   font: 900 clamp(42px, 5vw, 68px)/1 "Nunito", sans-serif;
   letter-spacing: -3px;
@@ -446,6 +477,38 @@ button {
   background:
     repeating-linear-gradient(90deg, transparent 0 42px, rgba(255,255,255,.08) 43px 45px),
     linear-gradient(#7d9b72, #4f7353);
+}
+
+.row-yacht::before {
+  background:
+    linear-gradient(174deg, transparent 48%, rgba(255,255,255,.3) 49% 52%, transparent 53%) 0 0 / 90px 42px,
+    linear-gradient(#75b9ce 0 48%, #337fa5 49% 100%);
+}
+
+.row-timeMachine::before {
+  background:
+    repeating-radial-gradient(circle at 78% 50%, transparent 0 11px, rgba(255,211,114,.18) 12px 14px),
+    linear-gradient(90deg, #5e485f, #9a704e);
+}
+
+.row-starship::before {
+  background:
+    radial-gradient(circle at 12% 25%, #fff 0 1px, transparent 2px) 0 0 / 43px 31px,
+    radial-gradient(circle at 70% 60%, #c9d9ff 0 1px, transparent 2px) 0 0 / 61px 47px,
+    linear-gradient(90deg, #171d3e, #353064);
+}
+
+.row-dogPlanet::before {
+  background:
+    radial-gradient(circle at 73% 55%, #99bb79 0 18px, #5f8e72 19px 27px, transparent 28px),
+    radial-gradient(circle at 20% 20%, rgba(255,255,255,.72) 0 1px, transparent 2px) 0 0 / 51px 37px,
+    linear-gradient(90deg, #292753, #41427b);
+}
+
+.row-rainbowBridge::before {
+  background:
+    linear-gradient(90deg, rgba(255,121,121,.45), rgba(255,210,112,.45), rgba(139,211,145,.45), rgba(115,177,225,.45), rgba(177,136,222,.45)),
+    linear-gradient(#71659e, #423b72);
 }
 
 .production-label {

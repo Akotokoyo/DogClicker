@@ -33,16 +33,18 @@ function App() {
 
   const cps = getCps(game)
   const clickPower = getClickPower(game)
-  const visibleUpgrades = UPGRADES.filter((upgrade) => {
-    const hasEnoughGenerators =
-      !upgrade.requiredOwned ||
-      (upgrade.buildingId !== undefined && game.buildings[upgrade.buildingId] >= upgrade.requiredOwned)
-    return (
-      game.totalCuddles >= upgrade.unlockAt &&
-      hasEnoughGenerators &&
-      !game.upgrades.includes(upgrade.id)
-    )
-  })
+  const visibleUpgrades = UPGRADES
+    .filter((upgrade) => {
+      const hasEnoughGenerators =
+        !upgrade.requiredOwned ||
+        (upgrade.buildingId !== undefined && game.buildings[upgrade.buildingId] >= upgrade.requiredOwned)
+      return (
+        game.totalCuddles >= upgrade.unlockAt &&
+        hasEnoughGenerators &&
+        !game.upgrades.includes(upgrade.id)
+      )
+    })
+    .sort((first, second) => first.price - second.price)
   const totalDogs = Object.values(game.buildings).reduce((sum, amount) => sum + amount, 0)
 
   const handleDogClick = (event: MouseEvent<HTMLButtonElement>) => {
@@ -69,7 +71,20 @@ function App() {
       <section className="game-grid">
         <aside className="dog-panel panel">
           <div className="counter-card">
-            <span className="eyebrow">LA TUA RISERVA</span>
+            <span className="eyebrow">IL TUO PRIMO CAGNETTO</span>
+            <label className="dog-name-input">
+              <input
+                type="text"
+                value={game.dogName}
+                maxLength={18}
+                aria-label="Nome del tuo cagnetto"
+                onChange={(event) => game.setDogName(event.target.value)}
+                onBlur={() => {
+                  if (!game.dogName.trim()) game.setDogName('Biscotto')
+                }}
+              />
+              <span>✎</span>
+            </label>
             <h1>{formatNumber(game.cuddles)}</h1>
             <p>coccole</p>
             <div className="cps-pill"><span className="live-dot" /> {formatNumber(cps)} al secondo</div>
@@ -82,7 +97,7 @@ function App() {
             <button className="dog-button" type="button" onClick={handleDogClick} aria-label="Coccola il cagnetto">
               <span className="dog-shadow" />
               <span className="dog-emoji">🐶</span>
-              <span className="dog-name">Biscotto</span>
+              <span className="dog-name">{game.dogName.trim() || 'Cagnetto'}</span>
             </button>
             <p className="click-hint">Clicca per una coccola <span>+{formatNumber(clickPower)}</span></p>
           </div>

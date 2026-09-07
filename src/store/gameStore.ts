@@ -11,6 +11,7 @@ import {
 type PurchaseMode = 'buy' | 'sell'
 
 type GameState = {
+  dogName: string
   cuddles: number
   totalCuddles: number
   totalClicks: number
@@ -35,6 +36,7 @@ type GameState = {
   buyUpgrade: (id: string) => void
   setBuyAmount: (amount: 1 | 10 | 100) => void
   setPurchaseMode: (mode: PurchaseMode) => void
+  setDogName: (name: string) => void
   collectGoldenBone: () => void
 }
 
@@ -63,18 +65,27 @@ const getAllMultiplier = (upgrades: string[]) =>
   UPGRADES.filter((upgrade) => upgrades.includes(upgrade.id) && upgrade.kind === 'all')
     .reduce((total, upgrade) => total * upgrade.multiplier, 1)
 
-export const getClickPower = (state: Pick<GameState, 'upgrades' | 'clickFrenzyUntil' | 'currentTime'>) => {
+export const getClickPower = (
+  state: Pick<
+    GameState,
+    'upgrades' | 'clickFrenzyUntil' | 'currentTime' | 'buildings' | 'frenzyUntil'
+  >,
+) => {
   const upgradeMultiplier = UPGRADES
     .filter((upgrade) => state.upgrades.includes(upgrade.id) && upgrade.kind === 'click')
     .reduce((total, upgrade) => total * upgrade.multiplier, 1)
+  const cpsFraction = UPGRADES
+    .filter((upgrade) => state.upgrades.includes(upgrade.id) && upgrade.kind === 'clickCps')
+    .reduce((total, upgrade) => total + upgrade.multiplier, 0)
+  const productionBonus = getCps(state, true) * cpsFraction
   const frenzyMultiplier = state.currentTime < state.clickFrenzyUntil ? 25 : 1
-  return upgradeMultiplier * frenzyMultiplier
+  return (upgradeMultiplier + productionBonus) * frenzyMultiplier
 }
 
-export const getCps = (
+export function getCps(
   state: Pick<GameState, 'buildings' | 'upgrades' | 'frenzyUntil' | 'currentTime'>,
   ignoreFrenzy = false,
-) => {
+) {
   const baseCps = BUILDINGS.reduce((total, building) => {
     const buildingMultiplier = UPGRADES
       .filter(
@@ -117,6 +128,7 @@ export const ACHIEVEMENT_DETAILS = [
 export const useGameStore = create<GameState>()(
   persist(
     (set, get) => ({
+      dogName: 'Biscotto',
       cuddles: 0,
       totalCuddles: 0,
       totalClicks: 0,
@@ -226,6 +238,7 @@ export const useGameStore = create<GameState>()(
 
       setBuyAmount: (buyAmount) => set({ buyAmount }),
       setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
+      setDogName: (dogName) => set({ dogName: dogName.slice(0, 18) }),
 
       collectGoldenBone: () => {
         const state = get()
@@ -255,7 +268,19 @@ export const useGameStore = create<GameState>()(
     {
       name: 'dog-clicker-save',
       storage: createJSONStorage(() => throttledStorage),
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState ?? {}) as Partial<GameState>
+        return {
+          ...currentState,
+          ...persisted,
+          buildings: {
+            ...currentState.buildings,
+            ...persisted.buildings,
+          },
+        }
+      },
       partialize: (state) => ({
+        dogName: state.dogName,
         cuddles: state.cuddles,
         totalCuddles: state.totalCuddles,
         totalClicks: state.totalClicks,
