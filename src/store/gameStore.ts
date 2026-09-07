@@ -22,6 +22,9 @@ type GameState = {
   goldenBoneVisible: boolean
   goldenBoneExpiresAt: number
   nextGoldenBoneAt: number
+  goldenBoneX: number
+  goldenBoneY: number
+  goldenBoneSize: number
   frenzyUntil: number
   clickFrenzyUntil: number
   currentTime: number
@@ -125,6 +128,9 @@ export const useGameStore = create<GameState>()(
       goldenBoneVisible: false,
       goldenBoneExpiresAt: 0,
       nextGoldenBoneAt: Date.now() + randomBoneDelay(),
+      goldenBoneX: 50,
+      goldenBoneY: 50,
+      goldenBoneSize: 76,
       frenzyUntil: 0,
       clickFrenzyUntil: 0,
       currentTime: Date.now(),
@@ -158,6 +164,9 @@ export const useGameStore = create<GameState>()(
         if (!state.goldenBoneVisible && now >= state.nextGoldenBoneAt) {
           update.goldenBoneVisible = true
           update.goldenBoneExpiresAt = now + 9_000
+          update.goldenBoneX = Math.random() * 100
+          update.goldenBoneY = Math.random() * 100
+          update.goldenBoneSize = 48 + Math.random() * 62
           update.message = 'Un osso d’oro è apparso! Acchiappalo!'
         } else if (state.goldenBoneVisible && now >= state.goldenBoneExpiresAt) {
           update.goldenBoneVisible = false
@@ -174,7 +183,7 @@ export const useGameStore = create<GameState>()(
       buyBuilding: (id) => {
         const state = get()
         const building = BUILDINGS.find((item) => item.id === id)
-        if (!building) return
+        if (!building || state.totalCuddles < building.unlockAt) return
 
         if (state.purchaseMode === 'sell') {
           const quantity = Math.min(state.buildings[id], state.buyAmount)

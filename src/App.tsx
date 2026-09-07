@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { BUILDINGS, NEWS, UPGRADES, formatNumber, getBuildingCost, getBuildingSellValue } from './game/data'
 import { ACHIEVEMENT_DETAILS, getClickPower, getCps, useGameStore } from './store/gameStore'
 import './App.css'
@@ -37,10 +37,6 @@ function App() {
     (upgrade) => game.totalCuddles >= upgrade.unlockAt && !game.upgrades.includes(upgrade.id),
   )
   const totalDogs = Object.values(game.buildings).reduce((sum, amount) => sum + amount, 0)
-  const kennelDogs = useMemo(() => {
-    const count = Math.min(28, Math.max(4, totalDogs))
-    return Array.from({ length: count }, (_, index) => ['🐕', '🐩', '🦮', '🐕‍🦺'][index % 4])
-  }, [totalDogs])
 
   const handleDogClick = (event: MouseEvent<HTMLButtonElement>) => {
     const gained = game.clickDog()
@@ -96,23 +92,46 @@ function App() {
             <p>{NEWS[newsIndex]}</p>
           </div>
 
-          <div className="world-scene">
-            <div className="scene-sky">
-              <div className="scene-title">
-                <span>IL TUO BRANCO</span>
-                <strong>{totalDogs} aiutanti</strong>
+          <div className="production-world">
+            <div className="production-title">
+              <div><span>IL TUO IMPERO</span><strong>Produzione di coccole</strong></div>
+              <small>{totalDogs} strutture</small>
+            </div>
+            {totalDogs === 0 && (
+              <div className="production-empty">
+                <span>🐾</span>
+                <strong>Il tuo impero aspetta il primo aiutante</strong>
+                <small>Acquista una struttura nel negozio per far apparire la sua riga.</small>
               </div>
-              <div className="hills hills-back" />
-              <div className="hills hills-front" />
-            </div>
-            <div className="kennel">
-              {kennelDogs.map((dog, index) => (
-                <span key={index} style={{ animationDelay: `${(index % 5) * 0.18}s` }}>{dog}</span>
-              ))}
-            </div>
-            <div className="village">
-              <span>🏠</span><span>🌲</span><span>🏡</span><span>🌳</span><span>🏠</span>
-            </div>
+            )}
+            {BUILDINGS.filter((building) => game.buildings[building.id] > 0).map((building) => {
+              const owned = game.buildings[building.id]
+              const visibleActors = Math.min(owned, 24)
+              return (
+                <div className={`production-row row-${building.id}`} key={building.id}>
+                  <div className="production-label">
+                    <span className="production-icon">{building.emoji}</span>
+                    <span>
+                      <strong>{building.name}</strong>
+                      <small>{formatNumber(building.cps * owned)} coccole/s</small>
+                    </span>
+                  </div>
+                  <div className="production-actors">
+                    {Array.from({ length: visibleActors }, (_, index) => (
+                      <span
+                        className="production-actor"
+                        key={index}
+                        style={{ animationDelay: `${(index % 6) * 0.13}s` }}
+                      >
+                        {building.emoji}
+                      </span>
+                    ))}
+                    {owned > visibleActors && <b className="actors-overflow">+{owned - visibleActors}</b>}
+                  </div>
+                  <strong className="production-count">{owned}</strong>
+                </div>
+              )
+            })}
           </div>
 
           <div className="message-bar"><span>💬</span><p>{game.message}</p></div>
@@ -176,6 +195,21 @@ function App() {
 
           <div className="building-list">
             {BUILDINGS.map((building) => {
+              const unlocked = game.totalCuddles >= building.unlockAt
+              if (!unlocked) {
+                return (
+                  <div className="building building-locked" key={building.id}>
+                    <span className="building-icon">?</span>
+                    <span className="building-info">
+                      <strong>Struttura da scoprire</strong>
+                      <small>Accumula coccole totali per rivelarla.</small>
+                      <em>{formatNumber(game.totalCuddles)} / {formatNumber(building.unlockAt)} 🤎</em>
+                    </span>
+                    <span className="lock-mark">🔒</span>
+                  </div>
+                )
+              }
+
               const owned = game.buildings[building.id]
               const value = game.purchaseMode === 'buy'
                 ? getBuildingCost(building, owned, game.buyAmount)
@@ -204,7 +238,18 @@ function App() {
       </section>
 
       {game.goldenBoneVisible && (
-        <button className="golden-bone" type="button" onClick={game.collectGoldenBone} aria-label="Raccogli l’osso d’oro">
+        <button
+          className="golden-bone"
+          type="button"
+          onClick={game.collectGoldenBone}
+          aria-label="Raccogli l’osso d’oro"
+          style={{
+            '--bone-x': `${game.goldenBoneX}vw`,
+            '--bone-y': `${game.goldenBoneY}vh`,
+            '--bone-size': `${game.goldenBoneSize}px`,
+            '--bone-edge': `${game.goldenBoneSize / 2 + 12}px`,
+          } as CSSProperties}
+        >
           <span>🦴</span><small>PRENDIMI!</small>
         </button>
       )}
