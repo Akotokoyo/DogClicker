@@ -213,6 +213,10 @@ export const useGameStore = create<GameState>()(
         const state = get()
         const upgrade = UPGRADES.find((item) => item.id === id)
         if (!upgrade || state.upgrades.includes(id) || state.cuddles < upgrade.price) return
+        const hasEnoughGenerators =
+          !upgrade.requiredOwned ||
+          (upgrade.buildingId !== undefined && state.buildings[upgrade.buildingId] >= upgrade.requiredOwned)
+        if (state.totalCuddles < upgrade.unlockAt || !hasEnoughGenerators) return
         set({
           cuddles: state.cuddles - upgrade.price,
           upgrades: [...state.upgrades, id],

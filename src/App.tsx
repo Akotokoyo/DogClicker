@@ -33,9 +33,16 @@ function App() {
 
   const cps = getCps(game)
   const clickPower = getClickPower(game)
-  const visibleUpgrades = UPGRADES.filter(
-    (upgrade) => game.totalCuddles >= upgrade.unlockAt && !game.upgrades.includes(upgrade.id),
-  )
+  const visibleUpgrades = UPGRADES.filter((upgrade) => {
+    const hasEnoughGenerators =
+      !upgrade.requiredOwned ||
+      (upgrade.buildingId !== undefined && game.buildings[upgrade.buildingId] >= upgrade.requiredOwned)
+    return (
+      game.totalCuddles >= upgrade.unlockAt &&
+      hasEnoughGenerators &&
+      !game.upgrades.includes(upgrade.id)
+    )
+  })
   const totalDogs = Object.values(game.buildings).reduce((sum, amount) => sum + amount, 0)
 
   const handleDogClick = (event: MouseEvent<HTMLButtonElement>) => {
@@ -166,7 +173,7 @@ function App() {
               <strong>Upgrade</strong><small>{game.upgrades.length} posseduti</small>
             </div>
             <div className="upgrade-row">
-              {visibleUpgrades.length ? visibleUpgrades.slice(0, 5).map((upgrade) => (
+              {visibleUpgrades.length ? visibleUpgrades.map((upgrade) => (
                 <button
                   type="button"
                   key={upgrade.id}

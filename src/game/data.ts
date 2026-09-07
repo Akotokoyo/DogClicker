@@ -39,15 +39,54 @@ export type Upgrade = {
   kind: 'click' | 'all' | 'building'
   multiplier: number
   buildingId?: BuildingId
+  requiredOwned?: number
 }
 
-export const UPGRADES: Upgrade[] = [
+const CLICK_UPGRADES: Upgrade[] = [
   { id: 'soft-glove', name: 'Guanto morbido', emoji: '🧤', description: 'Coccole per click ×2', price: 100, unlockAt: 50, kind: 'click', multiplier: 2 },
-  { id: 'sitter-course', name: 'Corso per sitter', emoji: '📚', description: 'Dog sitter ×2', price: 500, unlockAt: 250, kind: 'building', multiplier: 2, buildingId: 'sitter' },
-  { id: 'happy-leash', name: 'Guinzaglio felice', emoji: '🦮', description: 'Dog walker ×2', price: 5_000, unlockAt: 2_000, kind: 'building', multiplier: 2, buildingId: 'walker' },
-  { id: 'group-hug', name: 'Abbraccio di gruppo', emoji: '💞', description: 'Tutta la produzione ×1,25', price: 25_000, unlockAt: 10_000, kind: 'all', multiplier: 1.25 },
   { id: 'magic-treat', name: 'Snack magico', emoji: '🥓', description: 'Coccole per click ×5', price: 100_000, unlockAt: 50_000, kind: 'click', multiplier: 5 },
-  { id: 'dog-network', name: 'Dog network', emoji: '📡', description: 'Tutta la produzione ×2', price: 1_000_000, unlockAt: 500_000, kind: 'all', multiplier: 2 },
+]
+
+const GENERATOR_UPGRADE_TIERS = [
+  { requiredOwned: 10, priceMultiplier: 10, prefix: 'Kit', emoji: '🧰' },
+  { requiredOwned: 25, priceMultiplier: 100, prefix: 'Squadra', emoji: '⭐' },
+  { requiredOwned: 50, priceMultiplier: 1_000, prefix: 'Maestria', emoji: '🏅' },
+] as const
+
+const GENERATOR_UPGRADES: Upgrade[] = BUILDINGS.flatMap((building) =>
+  GENERATOR_UPGRADE_TIERS.map((tier, index) => ({
+    id:
+      index === 0 && building.id === 'sitter'
+        ? 'sitter-course'
+        : index === 0 && building.id === 'walker'
+          ? 'happy-leash'
+          : `${building.id}-generator-${index + 1}`,
+    name: `${tier.prefix} ${building.name}`,
+    emoji: tier.emoji,
+    description: `${building.name}: produzione ×2 (richiede ${tier.requiredOwned})`,
+    price: building.baseCost * tier.priceMultiplier,
+    unlockAt: building.unlockAt,
+    kind: 'building' as const,
+    multiplier: 2,
+    buildingId: building.id,
+    requiredOwned: tier.requiredOwned,
+  })),
+)
+
+const GLOBAL_UPGRADES: Upgrade[] = [
+  { id: 'pack-spirit', name: 'Spirito del branco', emoji: '🐕', description: 'Produzione globale +5%', price: 500, unlockAt: 1_000, kind: 'all', multiplier: 1.05 },
+  { id: 'cuddle-routine', name: 'Routine di coccole', emoji: '📅', description: 'Produzione globale +5%', price: 5_000, unlockAt: 10_000, kind: 'all', multiplier: 1.05 },
+  { id: 'group-hug', name: 'Abbraccio di gruppo', emoji: '💞', description: 'Produzione globale +25%', price: 25_000, unlockAt: 10_000, kind: 'all', multiplier: 1.25 },
+  { id: 'park-festival', name: 'Festival del parco', emoji: '🎈', description: 'Produzione globale +7%', price: 50_000, unlockAt: 100_000, kind: 'all', multiplier: 1.07 },
+  { id: 'dog-network', name: 'Dog network', emoji: '📡', description: 'Produzione globale +10%', price: 500_000, unlockAt: 1_000_000, kind: 'all', multiplier: 1.1 },
+  { id: 'national-day', name: 'Giornata nazionale', emoji: '🎉', description: 'Produzione globale +10%', price: 5_000_000, unlockAt: 10_000_000, kind: 'all', multiplier: 1.1 },
+  { id: 'legendary-pack', name: 'Branco leggendario', emoji: '👑', description: 'Produzione globale +15%', price: 50_000_000, unlockAt: 100_000_000, kind: 'all', multiplier: 1.15 },
+]
+
+export const UPGRADES: Upgrade[] = [
+  ...CLICK_UPGRADES,
+  ...GENERATOR_UPGRADES,
+  ...GLOBAL_UPGRADES,
 ]
 
 export const NEWS = [
