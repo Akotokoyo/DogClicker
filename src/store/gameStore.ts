@@ -7,6 +7,14 @@ import {
   getBuildingSellValue,
   type BuildingId,
 } from '../game/data'
+import {
+  PRESTIGE_MIN_RUN_CUDDLES,
+  PRESTIGE_UPGRADES,
+  emptyPrestigeUpgrades,
+  getPrestigeUpgradeCost,
+  getTotalPrestigeStars,
+  type PrestigeUpgradeId,
+} from '../game/prestige'
 
 type PurchaseMode = 'buy' | 'sell'
 
@@ -14,6 +22,7 @@ type GameState = {
   dogName: string
   cuddles: number
   totalCuddles: number
+  allTimeCuddles: number
   totalClicks: number
   buildings: Record<BuildingId, number>
   upgrades: string[]
@@ -33,6 +42,10 @@ type GameState = {
   offlineEarnings: number
   offlineSeconds: number
   showReturnModal: boolean
+  prestigeStars: number
+  availablePrestigeStars: number
+  prestigeUpgrades: Record<PrestigeUpgradeId, number>
+  showPrestigeModal: boolean
   message: string
   prepareOfflineEarnings: () => void
   dismissReturnModal: () => void
@@ -43,12 +56,16 @@ type GameState = {
   setBuyAmount: (amount: 1 | 10 | 100) => void
   setPurchaseMode: (mode: PurchaseMode) => void
   setDogName: (name: string) => void
+  setPrestigeModal: (visible: boolean) => void
+  ascend: () => void
+  buyPrestigeUpgrade: (id: PrestigeUpgradeId) => void
   collectGoldenBone: () => void
 }
 
 const emptyBuildings = Object.fromEntries(BUILDINGS.map(({ id }) => [id, 0])) as Record<BuildingId, number>
 
-const randomBoneDelay = () => 18_000 + Math.random() * 22_000
+const randomBoneDelay = (goldenScentLevel = 0) =>
+  (18_000 + Math.random() * 22_000) * Math.max(0.5, 1 - goldenScentLevel * 0.1)
 
 let pendingSave: { name: string; value: string } | undefined
 let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -71,10 +88,23 @@ const getAllMultiplier = (upgrades: string[]) =>
   UPGRADES.filter((upgrade) => upgrades.includes(upgrade.id) && upgrade.kind === 'all')
     .reduce((total, upgrade) => total * upgrade.multiplier, 1)
 
+export const getClaimablePrestigeStars = (
+  state: Pick<GameState, 'allTimeCuddles' | 'prestigeStars' | 'totalCuddles'>,
+) => {
+  if (state.totalCuddles < PRESTIGE_MIN_RUN_CUDDLES) return 0
+  return Math.max(0, getTotalPrestigeStars(state.allTimeCuddles) - state.prestigeStars)
+}
+
 export const getClickPower = (
   state: Pick<
     GameState,
-    'upgrades' | 'clickFrenzyUntil' | 'currentTime' | 'buildings' | 'frenzyUntil'
+    | 'upgrades'
+    | 'clickFrenzyUntil'
+    | 'currentTime'
+    | 'buildings'
+    | 'frenzyUntil'
+    | 'prestigeStars'
+    | 'prestigeUpgrades'
   >,
 ) => {
   const upgradeMultiplier = UPGRADES
@@ -83,13 +113,18 @@ export const getClickPower = (
   const cpsFraction = UPGRADES
     .filter((upgrade) => state.upgrades.includes(upgrade.id) && upgrade.kind === 'clickCps')
     .reduce((total, upgrade) => total + upgrade.multiplier, 0)
-  const productionBonus = getCps(state, true) * cpsFraction
+  const astralFraction = state.prestigeUpgrades.astralBond * 0.01
+  const productionBonus = getCps(state, true) * (cpsFraction + astralFraction)
+  const prestigeClickMultiplier = 1 + state.prestigeUpgrades.swiftPaw * 0.1
   const frenzyMultiplier = state.currentTime < state.clickFrenzyUntil ? 25 : 1
-  return (upgradeMultiplier + productionBonus) * frenzyMultiplier
+  return (upgradeMultiplier + productionBonus) * prestigeClickMultiplier * frenzyMultiplier
 }
 
 export function getCps(
-  state: Pick<GameState, 'buildings' | 'upgrades' | 'frenzyUntil' | 'currentTime'>,
+  state: Pick<
+    GameState,
+    'buildings' | 'upgrades' | 'frenzyUntil' | 'currentTime' | 'prestigeStars' | 'prestigeUpgrades'
+  >,
   ignoreFrenzy = false,
 ) {
   const baseCps = BUILDINGS.reduce((total, building) => {
@@ -105,7 +140,9 @@ export function getCps(
   }, 0)
 
   const frenzyMultiplier = !ignoreFrenzy && state.currentTime < state.frenzyUntil ? 7 : 1
-  return baseCps * getAllMultiplier(state.upgrades) * frenzyMultiplier
+  const permanentMultiplier =
+    1 + state.prestigeStars * 0.01 + state.prestigeUpgrades.packHeart * 0.05
+  return baseCps * getAllMultiplier(state.upgrades) * permanentMultiplier * frenzyMultiplier
 }
 
 const getNewAchievements = (state: GameState) => {
@@ -137,6 +174,7 @@ export const useGameStore = create<GameState>()(
       dogName: 'Biscotto',
       cuddles: 0,
       totalCuddles: 0,
+      allTimeCuddles: 0,
       totalClicks: 0,
       buildings: { ...emptyBuildings },
       upgrades: [],
@@ -156,14 +194,19 @@ export const useGameStore = create<GameState>()(
       offlineEarnings: 0,
       offlineSeconds: 0,
       showReturnModal: false,
+      prestigeStars: 0,
+      availablePrestigeStars: 0,
+      prestigeUpgrades: { ...emptyPrestigeUpgrades },
+      showPrestigeModal: false,
       message: 'Il tuo impero di coccole comincia qui.',
 
       prepareOfflineEarnings: () => {
         const state = get()
         const now = Date.now()
+        const offlineCapHours = 8 + state.prestigeUpgrades.productiveSleep * 2
         const offlineSeconds = Math.min(
           Math.max((now - state.lastSavedAt) / 1_000, 0),
-          8 * 60 * 60,
+          offlineCapHours * 60 * 60,
         )
         const offlineEarnings = getCps({ ...state, currentTime: now }, true) * offlineSeconds
 
@@ -171,6 +214,7 @@ export const useGameStore = create<GameState>()(
           set({
             cuddles: state.cuddles + offlineEarnings,
             totalCuddles: state.totalCuddles + offlineEarnings,
+            allTimeCuddles: state.allTimeCuddles + offlineEarnings,
             offlineEarnings,
             offlineSeconds,
             showReturnModal: true,
@@ -198,6 +242,7 @@ export const useGameStore = create<GameState>()(
         const updated = {
           cuddles: state.cuddles + gained,
           totalCuddles: state.totalCuddles + gained,
+          allTimeCuddles: state.allTimeCuddles + gained,
           totalClicks: state.totalClicks + 1,
         }
         set(updated)
@@ -214,6 +259,7 @@ export const useGameStore = create<GameState>()(
         const update: Partial<GameState> = {
           cuddles: state.cuddles + gained,
           totalCuddles: state.totalCuddles + gained,
+          allTimeCuddles: state.allTimeCuddles + gained,
           currentTime: now,
           lastSavedAt: now,
         }
@@ -227,7 +273,7 @@ export const useGameStore = create<GameState>()(
           update.message = 'Un osso d’oro è apparso! Acchiappalo!'
         } else if (state.goldenBoneVisible && now >= state.goldenBoneExpiresAt) {
           update.goldenBoneVisible = false
-          update.nextGoldenBoneAt = now + randomBoneDelay()
+          update.nextGoldenBoneAt = now + randomBoneDelay(state.prestigeUpgrades.goldenScent)
           update.message = 'L’osso d’oro è svanito... tornerà.'
         }
 
@@ -284,6 +330,49 @@ export const useGameStore = create<GameState>()(
       setBuyAmount: (buyAmount) => set({ buyAmount }),
       setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
       setDogName: (dogName) => set({ dogName: dogName.slice(0, 18) }),
+      setPrestigeModal: (showPrestigeModal) => set({ showPrestigeModal }),
+
+      ascend: () => {
+        const state = get()
+        const earnedStars = getClaimablePrestigeStars(state)
+        if (earnedStars <= 0) return
+        const now = Date.now()
+        const startingPaws = state.prestigeUpgrades.starterKennel * 2
+        set({
+          cuddles: 0,
+          totalCuddles: 0,
+          buildings: { ...emptyBuildings, paw: startingPaws },
+          upgrades: [],
+          prestigeStars: state.prestigeStars + earnedStars,
+          availablePrestigeStars: state.availablePrestigeStars + earnedStars,
+          showPrestigeModal: false,
+          showReturnModal: false,
+          offlineEarnings: 0,
+          offlineSeconds: 0,
+          goldenBoneVisible: false,
+          frenzyUntil: 0,
+          clickFrenzyUntil: 0,
+          nextGoldenBoneAt: now + randomBoneDelay(state.prestigeUpgrades.goldenScent),
+          currentTime: now,
+          lastSavedAt: now,
+          message: `Nuova eredità iniziata con ${earnedStars} Stelle canine!`,
+        })
+        flushSave()
+      },
+
+      buyPrestigeUpgrade: (id) => {
+        const state = get()
+        const upgrade = PRESTIGE_UPGRADES.find((item) => item.id === id)
+        if (!upgrade) return
+        const level = state.prestigeUpgrades[id]
+        const cost = getPrestigeUpgradeCost(upgrade, level)
+        if (level >= upgrade.maxLevel || state.availablePrestigeStars < cost) return
+        set({
+          availablePrestigeStars: state.availablePrestigeStars - cost,
+          prestigeUpgrades: { ...state.prestigeUpgrades, [id]: level + 1 },
+          message: `${upgrade.name} ora è al livello ${level + 1}.`,
+        })
+      },
 
       collectGoldenBone: () => {
         const state = get()
@@ -292,7 +381,7 @@ export const useGameStore = create<GameState>()(
         const roll = Math.random()
         const update: Partial<GameState> = {
           goldenBoneVisible: false,
-          nextGoldenBoneAt: now + randomBoneDelay(),
+          nextGoldenBoneAt: now + randomBoneDelay(state.prestigeUpgrades.goldenScent),
         }
 
         if (roll < 0.4) {
@@ -305,6 +394,7 @@ export const useGameStore = create<GameState>()(
           const reward = Math.max(77, getCps(state, true) * 600)
           update.cuddles = state.cuddles + reward
           update.totalCuddles = state.totalCuddles + reward
+          update.allTimeCuddles = state.allTimeCuddles + reward
           update.message = `Fortuna canina! Hai trovato ${Math.floor(reward).toLocaleString('it-IT')} coccole.`
         }
         set(update)
@@ -321,9 +411,15 @@ export const useGameStore = create<GameState>()(
         return {
           ...currentState,
           ...persisted,
+          allTimeCuddles:
+            persisted.allTimeCuddles ?? persisted.totalCuddles ?? currentState.allTimeCuddles,
           buildings: {
             ...currentState.buildings,
             ...persisted.buildings,
+          },
+          prestigeUpgrades: {
+            ...currentState.prestigeUpgrades,
+            ...persisted.prestigeUpgrades,
           },
         }
       },
@@ -331,12 +427,16 @@ export const useGameStore = create<GameState>()(
         dogName: state.dogName,
         cuddles: state.cuddles,
         totalCuddles: state.totalCuddles,
+        allTimeCuddles: state.allTimeCuddles,
         totalClicks: state.totalClicks,
         buildings: state.buildings,
         upgrades: state.upgrades,
         achievements: state.achievements,
         buyAmount: state.buyAmount,
         lastSavedAt: state.lastSavedAt,
+        prestigeStars: state.prestigeStars,
+        availablePrestigeStars: state.availablePrestigeStars,
+        prestigeUpgrades: state.prestigeUpgrades,
       }),
     },
   ),

@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { BUILDINGS, NEWS, UPGRADES, formatNumber, getBuildingCost, getBuildingSellValue } from './game/data'
-import { ACHIEVEMENT_DETAILS, getClickPower, getCps, useGameStore } from './store/gameStore'
+import {
+  PRESTIGE_MIN_RUN_CUDDLES,
+  PRESTIGE_UPGRADES,
+  getPrestigeUpgradeCost,
+} from './game/prestige'
+import {
+  ACHIEVEMENT_DETAILS,
+  getClaimablePrestigeStars,
+  getClickPower,
+  getCps,
+  useGameStore,
+} from './store/gameStore'
 import './App.css'
 
 const formatOfflineTime = (seconds: number) => {
@@ -15,6 +26,7 @@ function App() {
   const game = useGameStore()
   const [newsIndex, setNewsIndex] = useState(0)
   const [floaters, setFloaters] = useState<{ id: number; value: number; x: number; y: number }[]>([])
+  const [confirmingPrestige, setConfirmingPrestige] = useState(false)
   const floaterId = useRef(0)
   const lastTick = useRef(0)
   const tick = game.tick
@@ -41,6 +53,7 @@ function App() {
 
   const cps = getCps(game)
   const clickPower = getClickPower(game)
+  const claimablePrestigeStars = getClaimablePrestigeStars(game)
   const visibleUpgrades = UPGRADES
     .filter((upgrade) => {
       const hasEnoughGenerators =
@@ -73,6 +86,17 @@ function App() {
           <span><b>{formatNumber(game.totalClicks)}</b> click</span>
           <span><b>{game.achievements.length}/{ACHIEVEMENT_DETAILS.length}</b> traguardi</span>
           <span className="saved">Salvataggio automatico</span>
+          <button
+            className="prestige-nav"
+            type="button"
+            onClick={() => {
+              setConfirmingPrestige(false)
+              game.setPrestigeModal(true)
+            }}
+          >
+            ✨ Eredità <b>{game.availablePrestigeStars}</b>
+            {claimablePrestigeStars > 0 && <em>+{claimablePrestigeStars}</em>}
+          </button>
         </div>
       </header>
 
@@ -289,7 +313,116 @@ function App() {
             <button type="button" autoFocus onClick={game.dismissReturnModal}>
               Raccogli e continua
             </button>
-            <small className="offline-cap-note">Produzione offline conteggiata fino a un massimo di 8 ore.</small>
+            <small className="offline-cap-note">
+              Produzione offline conteggiata fino a un massimo di{' '}
+              {8 + game.prestigeUpgrades.productiveSleep * 2} ore.
+            </small>
+          </section>
+        </div>
+      )}
+
+      {game.showPrestigeModal && (
+        <div className="return-overlay prestige-overlay">
+          <section
+            className="prestige-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="prestige-title"
+          >
+            <button
+              className="modal-close"
+              type="button"
+              aria-label="Chiudi"
+              onClick={() => {
+                setConfirmingPrestige(false)
+                game.setPrestigeModal(false)
+              }}
+            >
+              ×
+            </button>
+
+            <div className="prestige-hero">
+              <span>✨</span>
+              <div>
+                <small>EREDITÀ DEL BRANCO</small>
+                <h2 id="prestige-title">Stelle canine</h2>
+                <p>Ogni stella raccolta aumenta per sempre la produzione globale dell’1%.</p>
+              </div>
+              <strong>{game.availablePrestigeStars}<small> disponibili</small></strong>
+            </div>
+
+            <div className="prestige-stats">
+              <div><small>Stelle raccolte</small><strong>{game.prestigeStars}</strong></div>
+              <div><small>Bonus permanente</small><strong>+{game.prestigeStars}%</strong></div>
+              <div><small>Prossima eredità</small><strong>+{claimablePrestigeStars}</strong></div>
+            </div>
+
+            <div className="legacy-heading">
+              <div><span>ALBERO DEL BRANCO</span><strong>Potenziamenti permanenti</strong></div>
+              <small>Le stelle spese mantengono il loro bonus dell’1%.</small>
+            </div>
+
+            <div className="prestige-grid">
+              {PRESTIGE_UPGRADES.map((upgrade) => {
+                const level = game.prestigeUpgrades[upgrade.id]
+                const cost = getPrestigeUpgradeCost(upgrade, level)
+                const maxed = level >= upgrade.maxLevel
+                return (
+                  <article className="prestige-upgrade" key={upgrade.id}>
+                    <span>{upgrade.emoji}</span>
+                    <div>
+                      <strong>{upgrade.name}</strong>
+                      <small>{upgrade.description}</small>
+                      <em>Livello {level}/{upgrade.maxLevel}</em>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={maxed || game.availablePrestigeStars < cost}
+                      onClick={() => game.buyPrestigeUpgrade(upgrade.id)}
+                    >
+                      {maxed ? 'MAX' : `${cost} ✨`}
+                    </button>
+                  </article>
+                )
+              })}
+            </div>
+
+            <div className="ascension-box">
+              {claimablePrestigeStars > 0 ? (
+                <>
+                  <div>
+                    <small>RICOMINCIA IL VIAGGIO</small>
+                    <strong>Otterrai {claimablePrestigeStars} Stelle canine</strong>
+                    <p>Strutture, coccole e upgrade normali verranno azzerati.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className={confirmingPrestige ? 'is-confirming' : ''}
+                    onClick={() => {
+                      if (confirmingPrestige) {
+                        game.ascend()
+                        setConfirmingPrestige(false)
+                      } else {
+                        setConfirmingPrestige(true)
+                      }
+                    }}
+                  >
+                    {confirmingPrestige ? 'Conferma il reset' : 'Inizia una nuova eredità'}
+                  </button>
+                </>
+              ) : (
+                <div className="prestige-locked">
+                  <span>🔒</span>
+                  <div>
+                    <strong>L’eredità non è ancora pronta</strong>
+                    <p>
+                      Accumula almeno {formatNumber(PRESTIGE_MIN_RUN_CUDDLES)} coccole in questa
+                      partita e continua a far crescere il branco.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </section>
         </div>
       )}
