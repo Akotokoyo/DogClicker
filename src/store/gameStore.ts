@@ -3,6 +3,7 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 import {
   BUILDINGS,
   UPGRADES,
+  emptyBuildings,
   getBuildingCost,
   getBuildingSellValue,
   type BuildingId,
@@ -10,24 +11,28 @@ import {
 import {
   PRESTIGE_MIN_RUN_CUDDLES,
   PRESTIGE_UPGRADES,
-  emptyPrestigeUpgrades,
   getPrestigeUpgradeCost,
   getTotalPrestigeStars,
   type PrestigeUpgradeId,
 } from '../game/prestige'
+import {
+  SAVE_KEY,
+  defaultPersistedGame,
+  normalizePersistedGame,
+  type PersistedGame,
+} from '../game/save'
+import { detectLanguage, type Language } from '../i18n/languages'
+import { type TranslateParams, type TranslationKey } from '../i18n/translations'
 
 type PurchaseMode = 'buy' | 'sell'
+type MenuTab = 'stats' | 'options'
 
-type GameState = {
-  dogName: string
-  cuddles: number
-  totalCuddles: number
-  allTimeCuddles: number
-  totalClicks: number
-  buildings: Record<BuildingId, number>
-  upgrades: string[]
-  achievements: string[]
-  buyAmount: 1 | 10 | 100
+export type GameMessage = {
+  key: TranslationKey
+  params?: TranslateParams
+}
+
+export type GameState = PersistedGame & {
   purchaseMode: PurchaseMode
   goldenBoneVisible: boolean
   goldenBoneExpiresAt: number
@@ -38,15 +43,16 @@ type GameState = {
   frenzyUntil: number
   clickFrenzyUntil: number
   currentTime: number
-  lastSavedAt: number
   offlineEarnings: number
   offlineSeconds: number
   showReturnModal: boolean
-  prestigeStars: number
-  availablePrestigeStars: number
-  prestigeUpgrades: Record<PrestigeUpgradeId, number>
   showPrestigeModal: boolean
-  message: string
+  showMenu: boolean
+  menuTab: MenuTab
+  tutorialOpen: boolean
+  tutorialStep: number
+  hydrated: boolean
+  message: GameMessage
   prepareOfflineEarnings: () => void
   dismissReturnModal: () => void
   clickDog: () => number
@@ -57,19 +63,30 @@ type GameState = {
   setPurchaseMode: (mode: PurchaseMode) => void
   setDogName: (name: string) => void
   setPrestigeModal: (visible: boolean) => void
+  setMenu: (visible: boolean, tab?: MenuTab) => void
+  setLanguage: (language: Language) => void
+  setAnimationsEnabled: (enabled: boolean) => void
+  setAbbreviatedNumbers: (enabled: boolean) => void
+  setVolume: (volume: number) => void
+  setMuted: (muted: boolean) => void
+  startTutorial: () => void
+  skipTutorial: () => void
+  completeTutorial: () => void
+  setTutorialStep: (step: number) => void
   ascend: () => void
   buyPrestigeUpgrade: (id: PrestigeUpgradeId) => void
   collectGoldenBone: () => void
+  importSave: (data: PersistedGame) => void
+  resetSave: () => void
+  getPersistedSnapshot: () => PersistedGame
 }
-
-const emptyBuildings = Object.fromEntries(BUILDINGS.map(({ id }) => [id, 0])) as Record<BuildingId, number>
 
 const randomBoneDelay = (goldenScentLevel = 0) =>
   (18_000 + Math.random() * 22_000) * Math.max(0.5, 1 - goldenScentLevel * 0.1)
 
 let pendingSave: { name: string; value: string } | undefined
 let saveTimer: ReturnType<typeof setTimeout> | undefined
-const flushSave = () => {
+export const flushSave = () => {
   if (pendingSave) localStorage.setItem(pendingSave.name, pendingSave.value)
   pendingSave = undefined
   saveTimer = undefined
@@ -160,92 +177,122 @@ const getNewAchievements = (state: GameState) => {
 }
 
 export const ACHIEVEMENT_DETAILS = [
-  { id: 'first-pat', name: 'La prima coccola', emoji: '🤎' },
-  { id: 'click-apprentice', name: 'Mano instancabile', emoji: '🖐️' },
-  { id: 'cuddle-rich', name: 'Mille coccole', emoji: '✨' },
-  { id: 'dog-empire', name: 'Impero canino', emoji: '👑' },
-  { id: 'first-helper', name: 'Una zampa in più', emoji: '🤝' },
-  { id: 'big-pack', name: 'Branco numeroso', emoji: '🐕' },
+  { id: 'first-pat', emoji: '🤎' },
+  { id: 'click-apprentice', emoji: '🖐️' },
+  { id: 'cuddle-rich', emoji: '✨' },
+  { id: 'dog-empire', emoji: '👑' },
+  { id: 'first-helper', emoji: '🤝' },
+  { id: 'big-pack', emoji: '🐕' },
 ]
+
+const pickPersisted = (state: PersistedGame): PersistedGame => ({
+  dogName: state.dogName,
+  cuddles: state.cuddles,
+  totalCuddles: state.totalCuddles,
+  allTimeCuddles: state.allTimeCuddles,
+  totalClicks: state.totalClicks,
+  buildings: state.buildings,
+  upgrades: state.upgrades,
+  achievements: state.achievements,
+  buyAmount: state.buyAmount,
+  lastSavedAt: state.lastSavedAt,
+  prestigeStars: state.prestigeStars,
+  availablePrestigeStars: state.availablePrestigeStars,
+  prestigeUpgrades: state.prestigeUpgrades,
+  playTimeSeconds: state.playTimeSeconds,
+  bonesCollected: state.bonesCollected,
+  recordCps: state.recordCps,
+  recordBalance: state.recordBalance,
+  recordOffline: state.recordOffline,
+  language: state.language,
+  animationsEnabled: state.animationsEnabled,
+  abbreviatedNumbers: state.abbreviatedNumbers,
+  volume: state.volume,
+  muted: state.muted,
+  tutorialCompleted: state.tutorialCompleted,
+})
+
+const now = Date.now()
+const defaults = defaultPersistedGame()
 
 export const useGameStore = create<GameState>()(
   persist(
     (set, get) => ({
-      dogName: 'Biscotto',
-      cuddles: 0,
-      totalCuddles: 0,
-      allTimeCuddles: 0,
-      totalClicks: 0,
-      buildings: { ...emptyBuildings },
-      upgrades: [],
-      achievements: [],
-      buyAmount: 1,
+      ...defaults,
+      language: detectLanguage(),
       purchaseMode: 'buy',
       goldenBoneVisible: false,
       goldenBoneExpiresAt: 0,
-      nextGoldenBoneAt: Date.now() + randomBoneDelay(),
+      nextGoldenBoneAt: now + randomBoneDelay(),
       goldenBoneX: 50,
       goldenBoneY: 50,
       goldenBoneSize: 76,
       frenzyUntil: 0,
       clickFrenzyUntil: 0,
-      currentTime: Date.now(),
-      lastSavedAt: Date.now(),
+      currentTime: now,
+      lastSavedAt: now,
       offlineEarnings: 0,
       offlineSeconds: 0,
       showReturnModal: false,
-      prestigeStars: 0,
-      availablePrestigeStars: 0,
-      prestigeUpgrades: { ...emptyPrestigeUpgrades },
       showPrestigeModal: false,
-      message: 'Il tuo impero di coccole comincia qui.',
+      showMenu: false,
+      menuTab: 'stats',
+      tutorialOpen: false,
+      tutorialStep: 0,
+      hydrated: false,
+      message: { key: 'message.start' },
 
       prepareOfflineEarnings: () => {
         const state = get()
-        const now = Date.now()
+        const timestamp = Date.now()
         const offlineCapHours = 8 + state.prestigeUpgrades.productiveSleep * 2
         const offlineSeconds = Math.min(
-          Math.max((now - state.lastSavedAt) / 1_000, 0),
+          Math.max((timestamp - state.lastSavedAt) / 1_000, 0),
           offlineCapHours * 60 * 60,
         )
-        const offlineEarnings = getCps({ ...state, currentTime: now }, true) * offlineSeconds
+        const offlineEarnings = getCps({ ...state, currentTime: timestamp }, true) * offlineSeconds
 
         if (offlineSeconds >= 60 && offlineEarnings > 0) {
+          const cuddles = state.cuddles + offlineEarnings
           set({
-            cuddles: state.cuddles + offlineEarnings,
+            cuddles,
             totalCuddles: state.totalCuddles + offlineEarnings,
             allTimeCuddles: state.allTimeCuddles + offlineEarnings,
             offlineEarnings,
             offlineSeconds,
             showReturnModal: true,
-            lastSavedAt: now,
-            currentTime: now,
-            message: `Il branco ha prodotto ${Math.floor(offlineEarnings).toLocaleString('it-IT')} coccole mentre eri via.`,
+            lastSavedAt: timestamp,
+            currentTime: timestamp,
+            recordBalance: Math.max(state.recordBalance, cuddles),
+            recordOffline: Math.max(state.recordOffline, offlineEarnings),
+            message: { key: 'message.offline', params: { amount: offlineEarnings } },
           })
           const current = get()
           const achievements = getNewAchievements(current)
           if (achievements.length !== current.achievements.length) set({ achievements })
         } else {
-          set({ lastSavedAt: now, currentTime: now })
+          set({ lastSavedAt: timestamp, currentTime: timestamp })
         }
       },
 
-      dismissReturnModal: () => set({
+      dismissReturnModal: () => set((state) => ({
         showReturnModal: false,
         offlineEarnings: 0,
         offlineSeconds: 0,
-      }),
+        tutorialOpen: !state.tutorialCompleted,
+      })),
 
       clickDog: () => {
         const state = get()
         const gained = getClickPower(state)
-        const updated = {
-          cuddles: state.cuddles + gained,
+        const cuddles = state.cuddles + gained
+        set({
+          cuddles,
           totalCuddles: state.totalCuddles + gained,
           allTimeCuddles: state.allTimeCuddles + gained,
           totalClicks: state.totalClicks + 1,
-        }
-        set(updated)
+          recordBalance: Math.max(state.recordBalance, cuddles),
+        })
         const current = get()
         const achievements = getNewAchievements(current)
         if (achievements.length !== current.achievements.length) set({ achievements })
@@ -254,27 +301,31 @@ export const useGameStore = create<GameState>()(
 
       tick: (seconds) => {
         const state = get()
-        const now = Date.now()
+        const timestamp = Date.now()
         const gained = getCps(state) * seconds
+        const cuddles = state.cuddles + gained
         const update: Partial<GameState> = {
-          cuddles: state.cuddles + gained,
+          cuddles,
           totalCuddles: state.totalCuddles + gained,
           allTimeCuddles: state.allTimeCuddles + gained,
-          currentTime: now,
-          lastSavedAt: now,
+          currentTime: timestamp,
+          lastSavedAt: timestamp,
+          playTimeSeconds: state.playTimeSeconds + seconds,
+          recordCps: Math.max(state.recordCps, getCps(state)),
+          recordBalance: Math.max(state.recordBalance, cuddles),
         }
 
-        if (!state.goldenBoneVisible && now >= state.nextGoldenBoneAt) {
+        if (!state.goldenBoneVisible && timestamp >= state.nextGoldenBoneAt) {
           update.goldenBoneVisible = true
-          update.goldenBoneExpiresAt = now + 9_000
+          update.goldenBoneExpiresAt = timestamp + 9_000
           update.goldenBoneX = Math.random() * 100
           update.goldenBoneY = Math.random() * 100
           update.goldenBoneSize = 48 + Math.random() * 62
-          update.message = 'Un osso d’oro è apparso! Acchiappalo!'
-        } else if (state.goldenBoneVisible && now >= state.goldenBoneExpiresAt) {
+          update.message = { key: 'message.boneSpawn' }
+        } else if (state.goldenBoneVisible && timestamp >= state.goldenBoneExpiresAt) {
           update.goldenBoneVisible = false
-          update.nextGoldenBoneAt = now + randomBoneDelay(state.prestigeUpgrades.goldenScent)
-          update.message = 'L’osso d’oro è svanito... tornerà.'
+          update.nextGoldenBoneAt = timestamp + randomBoneDelay(state.prestigeUpgrades.goldenScent)
+          update.message = { key: 'message.boneGone' }
         }
 
         set(update)
@@ -295,7 +346,7 @@ export const useGameStore = create<GameState>()(
           set({
             cuddles: state.cuddles + refund,
             buildings: { ...state.buildings, [id]: state.buildings[id] - quantity },
-            message: `${building.name}: ${quantity} vendut${quantity === 1 ? 'o' : 'i'}.`,
+            message: { key: 'message.sold', params: { buildingId: id, quantity } },
           })
           return
         }
@@ -305,7 +356,7 @@ export const useGameStore = create<GameState>()(
         set({
           cuddles: state.cuddles - cost,
           buildings: { ...state.buildings, [id]: state.buildings[id] + state.buyAmount },
-          message: `${building.name}: +${state.buyAmount} al lavoro!`,
+          message: { key: 'message.bought', params: { buildingId: id, quantity: state.buyAmount } },
         })
         const current = get()
         const achievements = getNewAchievements(current)
@@ -323,7 +374,7 @@ export const useGameStore = create<GameState>()(
         set({
           cuddles: state.cuddles - upgrade.price,
           upgrades: [...state.upgrades, id],
-          message: `${upgrade.name} acquistato!`,
+          message: { key: 'message.upgrade', params: { upgradeId: id } },
         })
       },
 
@@ -331,12 +382,22 @@ export const useGameStore = create<GameState>()(
       setPurchaseMode: (purchaseMode) => set({ purchaseMode }),
       setDogName: (dogName) => set({ dogName: dogName.slice(0, 18) }),
       setPrestigeModal: (showPrestigeModal) => set({ showPrestigeModal }),
+      setMenu: (showMenu, menuTab) => set({ showMenu, menuTab: menuTab ?? get().menuTab }),
+      setLanguage: (language) => set({ language }),
+      setAnimationsEnabled: (animationsEnabled) => set({ animationsEnabled }),
+      setAbbreviatedNumbers: (abbreviatedNumbers) => set({ abbreviatedNumbers }),
+      setVolume: (volume) => set({ volume: Math.min(100, Math.max(0, volume)) }),
+      setMuted: (muted) => set({ muted }),
+      startTutorial: () => set({ tutorialCompleted: false, tutorialOpen: true, tutorialStep: 0, showMenu: false }),
+      skipTutorial: () => set({ tutorialCompleted: true, tutorialOpen: false, tutorialStep: 0 }),
+      completeTutorial: () => set({ tutorialCompleted: true, tutorialOpen: false, tutorialStep: 0 }),
+      setTutorialStep: (tutorialStep) => set({ tutorialStep }),
 
       ascend: () => {
         const state = get()
         const earnedStars = getClaimablePrestigeStars(state)
         if (earnedStars <= 0) return
-        const now = Date.now()
+        const timestamp = Date.now()
         const startingPaws = state.prestigeUpgrades.starterKennel * 2
         set({
           cuddles: 0,
@@ -352,10 +413,10 @@ export const useGameStore = create<GameState>()(
           goldenBoneVisible: false,
           frenzyUntil: 0,
           clickFrenzyUntil: 0,
-          nextGoldenBoneAt: now + randomBoneDelay(state.prestigeUpgrades.goldenScent),
-          currentTime: now,
-          lastSavedAt: now,
-          message: `Nuova eredità iniziata con ${earnedStars} Stelle canine!`,
+          nextGoldenBoneAt: timestamp + randomBoneDelay(state.prestigeUpgrades.goldenScent),
+          currentTime: timestamp,
+          lastSavedAt: timestamp,
+          message: { key: 'message.prestige', params: { stars: earnedStars } },
         })
         flushSave()
       },
@@ -370,74 +431,113 @@ export const useGameStore = create<GameState>()(
         set({
           availablePrestigeStars: state.availablePrestigeStars - cost,
           prestigeUpgrades: { ...state.prestigeUpgrades, [id]: level + 1 },
-          message: `${upgrade.name} ora è al livello ${level + 1}.`,
+          message: { key: 'message.prestigeUpgrade', params: { prestigeId: id, level: level + 1 } },
         })
       },
 
       collectGoldenBone: () => {
         const state = get()
         if (!state.goldenBoneVisible) return
-        const now = Date.now()
+        const timestamp = Date.now()
         const roll = Math.random()
         const update: Partial<GameState> = {
           goldenBoneVisible: false,
-          nextGoldenBoneAt: now + randomBoneDelay(state.prestigeUpgrades.goldenScent),
+          nextGoldenBoneAt: timestamp + randomBoneDelay(state.prestigeUpgrades.goldenScent),
+          bonesCollected: state.bonesCollected + 1,
         }
 
         if (roll < 0.4) {
-          update.frenzyUntil = now + 30_000
-          update.message = 'Frenesia! Produzione ×7 per 30 secondi.'
+          update.frenzyUntil = timestamp + 30_000
+          update.message = { key: 'message.frenzy' }
         } else if (roll < 0.75) {
-          update.clickFrenzyUntil = now + 15_000
-          update.message = 'Zampe velocissime! Click ×25 per 15 secondi.'
+          update.clickFrenzyUntil = timestamp + 15_000
+          update.message = { key: 'message.clickFrenzy' }
         } else {
           const reward = Math.max(77, getCps(state, true) * 600)
-          update.cuddles = state.cuddles + reward
+          const cuddles = state.cuddles + reward
+          update.cuddles = cuddles
           update.totalCuddles = state.totalCuddles + reward
           update.allTimeCuddles = state.allTimeCuddles + reward
-          update.message = `Fortuna canina! Hai trovato ${Math.floor(reward).toLocaleString('it-IT')} coccole.`
+          update.recordBalance = Math.max(state.recordBalance, cuddles)
+          update.message = { key: 'message.lucky', params: { amount: reward } }
         }
         set(update)
       },
+
+      importSave: (data) => {
+        const timestamp = Date.now()
+        set({
+          ...data,
+          lastSavedAt: timestamp,
+          currentTime: timestamp,
+          purchaseMode: 'buy',
+          goldenBoneVisible: false,
+          frenzyUntil: 0,
+          clickFrenzyUntil: 0,
+          nextGoldenBoneAt: timestamp + randomBoneDelay(data.prestigeUpgrades.goldenScent),
+          offlineEarnings: 0,
+          offlineSeconds: 0,
+          showReturnModal: false,
+          showPrestigeModal: false,
+          showMenu: false,
+          tutorialOpen: !data.tutorialCompleted,
+          tutorialStep: 0,
+          hydrated: true,
+          message: { key: 'message.start' },
+        })
+        flushSave()
+      },
+
+      resetSave: () => {
+        const state = get()
+        const timestamp = Date.now()
+        set({
+          ...defaultPersistedGame(),
+          language: state.language,
+          animationsEnabled: state.animationsEnabled,
+          abbreviatedNumbers: state.abbreviatedNumbers,
+          volume: state.volume,
+          muted: state.muted,
+          lastSavedAt: timestamp,
+          currentTime: timestamp,
+          nextGoldenBoneAt: timestamp + randomBoneDelay(),
+          purchaseMode: 'buy',
+          goldenBoneVisible: false,
+          frenzyUntil: 0,
+          clickFrenzyUntil: 0,
+          offlineEarnings: 0,
+          offlineSeconds: 0,
+          showReturnModal: false,
+          showPrestigeModal: false,
+          showMenu: false,
+          tutorialOpen: true,
+          tutorialStep: 0,
+          tutorialCompleted: false,
+          message: { key: 'message.start' },
+        })
+        flushSave()
+      },
+
+      getPersistedSnapshot: () => pickPersisted(get()),
     }),
     {
-      name: 'dog-clicker-save',
+      name: SAVE_KEY,
       storage: createJSONStorage(() => throttledStorage),
       onRehydrateStorage: () => (state) => {
-        state?.prepareOfflineEarnings()
+        if (!state) return
+        state.hydrated = true
+        state.prepareOfflineEarnings()
+        if (!state.tutorialCompleted && !state.showReturnModal) state.tutorialOpen = true
       },
       merge: (persistedState, currentState) => {
-        const persisted = (persistedState ?? {}) as Partial<GameState>
+        const persisted = (persistedState ?? {}) as Record<string, unknown>
+        const normalized = normalizePersistedGame(persisted)
         return {
           ...currentState,
-          ...persisted,
-          allTimeCuddles:
-            persisted.allTimeCuddles ?? persisted.totalCuddles ?? currentState.allTimeCuddles,
-          buildings: {
-            ...currentState.buildings,
-            ...persisted.buildings,
-          },
-          prestigeUpgrades: {
-            ...currentState.prestigeUpgrades,
-            ...persisted.prestigeUpgrades,
-          },
+          ...normalized,
         }
       },
-      partialize: (state) => ({
-        dogName: state.dogName,
-        cuddles: state.cuddles,
-        totalCuddles: state.totalCuddles,
-        allTimeCuddles: state.allTimeCuddles,
-        totalClicks: state.totalClicks,
-        buildings: state.buildings,
-        upgrades: state.upgrades,
-        achievements: state.achievements,
-        buyAmount: state.buyAmount,
-        lastSavedAt: state.lastSavedAt,
-        prestigeStars: state.prestigeStars,
-        availablePrestigeStars: state.availablePrestigeStars,
-        prestigeUpgrades: state.prestigeUpgrades,
-      }),
+      partialize: (state) => pickPersisted(state),
     },
   ),
 )
