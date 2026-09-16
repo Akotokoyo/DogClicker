@@ -3,6 +3,14 @@ import { BUILDINGS, NEWS, UPGRADES, formatNumber, getBuildingCost, getBuildingSe
 import { ACHIEVEMENT_DETAILS, getClickPower, getCps, useGameStore } from './store/gameStore'
 import './App.css'
 
+const formatOfflineTime = (seconds: number) => {
+  const totalMinutes = Math.floor(seconds / 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return `${Math.max(1, minutes)} min`
+  return minutes === 0 ? `${hours} h` : `${hours} h ${minutes} min`
+}
+
 function App() {
   const game = useGameStore()
   const [newsIndex, setNewsIndex] = useState(0)
@@ -258,6 +266,33 @@ function App() {
           </div>
         </aside>
       </section>
+
+      {game.showReturnModal && (
+        <div className="return-overlay">
+          <section
+            className="return-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="return-title"
+          >
+            <div className="return-rays"><span>🐶</span></div>
+            <span className="eyebrow">IL BRANCO TI ASPETTAVA</span>
+            <h2 id="return-title">Che bello rivederti!</h2>
+            <p>
+              Mentre eri via, <strong>{game.dogName.trim() || 'il tuo cagnetto'}</strong> e il suo
+              branco hanno continuato a raccogliere coccole.
+            </p>
+            <div className="return-summary">
+              <div><small>Tempo trascorso</small><strong>{formatOfflineTime(game.offlineSeconds)}</strong></div>
+              <div><small>Coccole guadagnate</small><strong>+{formatNumber(game.offlineEarnings)} 🤎</strong></div>
+            </div>
+            <button type="button" autoFocus onClick={game.dismissReturnModal}>
+              Raccogli e continua
+            </button>
+            <small className="offline-cap-note">Produzione offline conteggiata fino a un massimo di 8 ore.</small>
+          </section>
+        </div>
+      )}
 
       {game.goldenBoneVisible && (
         <button

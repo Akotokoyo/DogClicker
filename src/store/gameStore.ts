@@ -29,7 +29,13 @@ type GameState = {
   frenzyUntil: number
   clickFrenzyUntil: number
   currentTime: number
+  lastSavedAt: number
+  offlineEarnings: number
+  offlineSeconds: number
+  showReturnModal: boolean
   message: string
+  prepareOfflineEarnings: () => void
+  dismissReturnModal: () => void
   clickDog: () => number
   tick: (seconds: number) => void
   buyBuilding: (id: BuildingId) => void
@@ -146,7 +152,45 @@ export const useGameStore = create<GameState>()(
       frenzyUntil: 0,
       clickFrenzyUntil: 0,
       currentTime: Date.now(),
+      lastSavedAt: Date.now(),
+      offlineEarnings: 0,
+      offlineSeconds: 0,
+      showReturnModal: false,
       message: 'Il tuo impero di coccole comincia qui.',
+
+      prepareOfflineEarnings: () => {
+        const state = get()
+        const now = Date.now()
+        const offlineSeconds = Math.min(
+          Math.max((now - state.lastSavedAt) / 1_000, 0),
+          8 * 60 * 60,
+        )
+        const offlineEarnings = getCps({ ...state, currentTime: now }, true) * offlineSeconds
+
+        if (offlineSeconds >= 60 && offlineEarnings > 0) {
+          set({
+            cuddles: state.cuddles + offlineEarnings,
+            totalCuddles: state.totalCuddles + offlineEarnings,
+            offlineEarnings,
+            offlineSeconds,
+            showReturnModal: true,
+            lastSavedAt: now,
+            currentTime: now,
+            message: `Il branco ha prodotto ${Math.floor(offlineEarnings).toLocaleString('it-IT')} coccole mentre eri via.`,
+          })
+          const current = get()
+          const achievements = getNewAchievements(current)
+          if (achievements.length !== current.achievements.length) set({ achievements })
+        } else {
+          set({ lastSavedAt: now, currentTime: now })
+        }
+      },
+
+      dismissReturnModal: () => set({
+        showReturnModal: false,
+        offlineEarnings: 0,
+        offlineSeconds: 0,
+      }),
 
       clickDog: () => {
         const state = get()
@@ -171,6 +215,7 @@ export const useGameStore = create<GameState>()(
           cuddles: state.cuddles + gained,
           totalCuddles: state.totalCuddles + gained,
           currentTime: now,
+          lastSavedAt: now,
         }
 
         if (!state.goldenBoneVisible && now >= state.nextGoldenBoneAt) {
@@ -268,6 +313,9 @@ export const useGameStore = create<GameState>()(
     {
       name: 'dog-clicker-save',
       storage: createJSONStorage(() => throttledStorage),
+      onRehydrateStorage: () => (state) => {
+        state?.prepareOfflineEarnings()
+      },
       merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<GameState>
         return {
@@ -288,6 +336,7 @@ export const useGameStore = create<GameState>()(
         upgrades: state.upgrades,
         achievements: state.achievements,
         buyAmount: state.buyAmount,
+        lastSavedAt: state.lastSavedAt,
       }),
     },
   ),
